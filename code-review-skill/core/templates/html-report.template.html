@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>代码评审报告</title>
+  <style>
+.code-review-report { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 900px; margin: 20px auto; padding: 20px; }
+.code-review-report h1 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }
+.code-review-report h2 { color: #555; margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+.decision { background: #f8f9fa; padding: 15px; border-radius: 5px; border-left: 4px solid #0066cc; margin-bottom: 20px; }
+.critical { background: #f8d7da; padding: 15px; border-radius: 5px; border-left: 4px solid #dc3545; margin-bottom: 20px; }
+.major { background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; margin-bottom: 20px; }
+.minor { background: #d1ecf1; padding: 15px; border-radius: 5px; border-left: 4px solid #17a2b8; margin-bottom: 20px; }
+.suggestion { background: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; margin-bottom: 20px; }
+.meta { background: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+.issue { margin: 15px 0; padding: 15px; background: white; border-radius: 4px; }
+.issue h3 { margin-top: 0; color: #333; }
+pre { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; }
+code { font-family: 'Monaco', 'Menlo', monospace; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+<!--
+HTML 评审报告模板
+用途：生成详细的 HTML 格式评审报告文件
+
+🚨 重要说明：
+- 本模板通过CDN引入反馈插件（CSS和JS），默认启用
+
+占位符说明：
+{{DECISION_ICON}}    - 评审结论图标（✅ / 💬 / 🔄）
+{{DECISION_TEXT}}    - 评审结论文字（批准合并 / 仅评论 / 请求修改后重新评审）
+{{DECISION_DESC}}    - 评审结论描述（一句话总结）
+{{P0_COUNT}}         - P0 严重问题数量
+{{P0_ISSUES}}        - P0 问题 HTML 内容
+{{P1_COUNT}}         - P1 主要问题数量
+{{P1_ISSUES}}        - P1 问题 HTML 内容
+{{P2_COUNT}}         - P2 小问题数量
+{{P2_ISSUES}}        - P2 问题 HTML 内容
+{{P3_COUNT}}         - P3 建议数量
+{{P3_ISSUES}}        - P3 建议 HTML 内容
+{{REVIEW_TIME}}      - 评审时间
+{{BRANCH_NAME}}      - 分支名称
+{{COMMIT_INFO}}      - 提交信息
+{{FILES_CHANGED}}    - 变更文件数
+{{LINES_CHANGED}}    - 变更行数（格式：+X / -Y）
+
+问题 HTML 格式示例（每个问题）：
+  <div class="issue">
+    <h3>1. 问题标题 <span style="color: #666; font-size: 0.85em;">[p1-naming-semantic]</span></h3>
+    <p><strong>位置：</strong>文件路径:行号</p>
+    <p><strong>问题：</strong>问题描述</p>
+    <p><strong>建议：</strong>修复建议</p>
+  </div>
+
+如果需要展示代码示例，可以添加：
+  <pre><code>代码示例内容</code></pre>
+
+如果某个等级无问题，填充：
+  <p>无</p>
+
+🚨 重要约束：
+- 每个问题标题旁必须标注规则ID（灰色小字）
+- 规则ID必须是 checklists.yaml 中实际存在的 id 字段值
+- 问题必须根据规则ID前缀放入对应等级：
+  - p0-xxx 规则 → P0 严重问题
+  - p1-xxx 规则 → P1 主要问题
+  - p2-xxx 规则 → P2 小问题
+  - p3-xxx 规则 → P3 建议
+- ❌ 严禁把 p0-xxx 规则的问题放到 P2 列表中
+-->
+
+<div class="code-review-report">
+  <h1>代码评审报告</h1>
+
+  <!-- 评审结论 -->
+  <div class="decision">
+    <h2>{{DECISION_ICON}} 评审结论：{{DECISION_TEXT}}</h2>
+    <p>{{DECISION_DESC}}</p>
+  </div>
+
+  <!-- P0 严重问题 -->
+  <div class="critical" data-priority="P0">
+    <h2>🔴 P0 严重问题（{{P0_COUNT}}个）</h2>
+    {{P0_ISSUES}}
+  </div>
+
+  <!-- P1 主要问题 -->
+  <div class="major" data-priority="P1">
+    <h2>🟡 P1 主要问题（{{P1_COUNT}}个）</h2>
+    {{P1_ISSUES}}
+  </div>
+
+  <!-- P2 小问题 -->
+  <div class="minor" data-priority="P2">
+    <h2>🟢 P2 小问题（{{P2_COUNT}}个）</h2>
+    {{P2_ISSUES}}
+  </div>
+
+  <!-- P3 建议 -->
+  <div class="suggestion" data-priority="P3">
+    <h2>💡 P3 建议（{{P3_COUNT}}个）</h2>
+    {{P3_ISSUES}}
+  </div>
+
+  <!-- 评审元数据 -->
+  <div class="meta">
+    <h2>📊 评审概览</h2>
+    <ul>
+      <li><strong>评审时间：</strong><span id="review-time-value">{{REVIEW_TIME}}</span></li>
+      <li><strong>分支：</strong><span id="branch-value">{{BRANCH_NAME}}</span></li>
+      <li><strong>提交：</strong><span id="commit-value">{{COMMIT_INFO}}</span></li>
+      <li><strong>变更文件：</strong><span id="files-value">{{FILES_CHANGED}}</span></li>
+      <li><strong>变更行数：</strong><span id="lines-value">{{LINES_CHANGED}}</span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- 反馈插件（通过CDN引入） -->
+<link rel="stylesheet" href="https://vercel-static.bj.bcebos.com/stash/v1/70bce13/mcp-tools/fd9683d/code-review/feedback-plugin.css">
+<script src="https://vercel-static.bj.bcebos.com/stash/v1/70bce13/mcp-tools/fd9683d/code-review/feedback-plugin.js"></script>
+
+</body>
+</html>

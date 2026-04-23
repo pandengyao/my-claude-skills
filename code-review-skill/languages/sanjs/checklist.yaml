@@ -1,0 +1,267 @@
+# SanJS 代码评审检查清单配置
+#
+# 严重程度分级（基于团队规范）：
+# - P0 (critical, 🔴): 严重问题，必须立即修复
+# - P1 (major, 🟡): 重要问题，建议修复
+# - P2 (minor, 🟢): 次要问题，可选改进
+# - P3 (nit, 💡): 建议性问题，完全可选
+#
+# 每个检查项的结构：
+# - id: 唯一标识符（格式：p0/p1/p2/p3-规则名，前缀表示严重程度）
+#   description: 检查项的详细说明
+#   cr_tool: 需要调用的评审工具（文档工具或脚本工具，可选）
+#   examples: 示例代码（可选）
+
+# ============================================================================
+# Metadata - 检查清单元数据
+# ============================================================================
+metadata:
+  language: SanJS
+  description: San.js 框架特定的检查规则
+  inherits:
+    - ../../core/checklists/checklist-common.yaml
+    - ../../core/checklists/checklist-fe.yaml
+  cr_tools:
+    - san-doc                # San.js 官方文档搜索
+    - san-faq                # San.js 常见问题
+    - san-router-doc         # San Router 路由文档
+    - san-store-doc          # San Store 状态管理文档
+    - cosmic_token_check.sh  # Cosmic Token 校验脚本入口（内部调用 @baidu/cosmic-toolkit）
+
+# ============================================================================
+# P0 级别 - 严重问题（必须修复）
+# ============================================================================
+
+# 【安全性】
+p0_security_checks:
+  - id: p0-xss-prevent-s-html
+    description: |
+      禁止使用 s-html 或 innerHTML 渲染未脱敏的后端/用户输入数据。
+      - 禁止直接渲染用户输入内容
+      - 禁止直接渲染未处理的后端数据
+      - 必须先进行 XSS 过滤或使用安全的渲染方式
+    examples:
+      good: |
+        <!-- 使用普通插值，自动转义 -->
+        <div>{{userInput}}</div>
+        
+        <!-- 必须使用时，先进行 XSS 过滤 -->
+        <div s-html="sanitizeHtml(content)"></div>
+      bad: |
+        <!-- 直接渲染用户输入 -->
+        <div s-html="userInput"></div>
+        
+        <!-- 直接渲染后端数据 -->
+        <div s-html="response.content"></div>
+
+# 【业务逻辑】
+p0_logic_checks:
+  - id: p0-no-side-effects-in-computed
+    description: |
+      禁止在 computed 内部产生副作用（如发送请求、操作 DOM）。
+      - computed 必须是纯函数，仅用于计算返回值
+      - 禁止发送网络请求
+      - 禁止操作 DOM
+      - 禁止修改数据状态
+    cr_tool: san-doc
+    examples:
+      good: |
+        computed: {
+          fullName() {
+            return this.data.get('firstName') + ' ' + this.data.get('lastName');
+          }
+        }
+      bad: |
+        computed: {
+          userData() {
+            this.fetchUser();  // 禁止发送请求
+            return this.data.get('user');
+          },
+          count() {
+            document.title = 'Count';  // 禁止操作 DOM
+            return this.data.get('count');
+          }
+        }
+
+  - id: p0-cleanup-on-detached
+    description: |
+      组件卸载（detached）时必须清理 setTimeout 和全局事件监听，防止内存泄露。
+      - 清理定时器：setTimeout、setInterval
+      - 移除全局事件：window、document 监听器
+      - 取消网络请求
+    cr_tool: san-doc
+    examples:
+      good: |
+        attached() {
+          this.timer = setTimeout(() => {}, 1000);
+          this.handleResize = this.onResize.bind(this);
+          window.addEventListener('resize', this.handleResize);
+        }
+        
+        detached() {
+          clearTimeout(this.timer);
+          window.removeEventListener('resize', this.handleResize);
+        }
+      bad: |
+        attached() {
+          setTimeout(() => {}, 1000);  // 未保存引用
+          window.addEventListener('resize', () => {});  // 未清理
+        }
+        
+        detached() {
+          // 没有清理资源
+        }
+
+  - id: p0-verify-san-api-usage
+    description: |
+      检查不常见或可疑的 San.js API 调用，必须使用 san-doc 工具查询官方文档验证。
+      - 不常见的API必须查询文档确认
+      - 可疑的生命周期钩子或方法必须验证是否存在
+      - 禁止使用其他框架的 API（如 React 的 setState）
+      - 常见 API 无需查询
+    cr_tool: san-doc
+    examples:
+      good: |
+        this.data.splice('items', [0, 1]);
+        this.data.push('list', item);
+        attached() { this.fetchData(); }
+      bad: |
+        this.setState({ count: 1 });  // React API，San.js 不支持
+        beforeCreate() { }  // 错误的生命周期，应使用 inited
+        this.data.remove('items', index);  // 需要查询文档验证是否存在
+
+# 【Cosmic 设计系统】
+p0_cosmic_checks:
+  - id: p0-use-cosmic-tokens
+    description: |
+      未使用已有的 Cosmic Token，而使用了硬编码数值。
+      
+      🚨 检查流程（必须遵守）：
+      1. 从 commit diff 中提取样式相关文件（css/less/scss/sass/styl/san/vue）。
+         - 必须同时提取对应变更行号，并组装为 `file:line1,line2`。
+      2. 调用统一脚本（脚本内部完成 pc/mobile 识别与 token check）：
+         - `bash ../../core/scripts/cosmic_token_check.sh "<file1:line1,line2;file2:line3>"`
+         - 传入内容必须是带行号的文件条目
+      3. 读取脚本 JSON 输出中的 `results[]` 并按文件分块输出（必须按 `results[]` 顺序）：
+         - 只生成 **一个** `p0-use-cosmic-tokens` 问题（不要按文件拆成多条 issue）
+         - 在该问题下，按文件分块展示 `results[i]`，每个文件块必须包含：
+           - `位置`：`results[i].file:results[i].lines`
+           - `检测到的硬编码值`：展示 `results[i].issue_points`
+
+      **最简输出模板（必须使用）**
+      ~~~markdown
+      ### 样式文件中存在硬编码值，应使用 Cosmic Token [p0-use-cosmic-tokens]
+      问题：未使用已有的 Cosmic Token，而使用了硬编码数值。
+
+      文件：<results[0].file>
+      行号：<results[0].lines>
+      问题：
+      - <results[0].issue_points[0]>
+      - <results[0].issue_points[1]>
+      解决命令：
+      ```bash
+      npx cosmic token check <results[0].file> --platform <results[0].platform> --fix
+      ```
+
+      文件：<results[1].file>
+      行号：<results[1].lines>
+      问题：
+      - <results[1].issue_points[0]>
+      解决命令：
+      ```bash
+      npx cosmic token check <results[1].file> --platform <results[1].platform> --fix
+      ```
+      ~~~
+
+      4. 规则层只消费脚本返回结果，禁止在规则层凭经验猜测 token 名称。
+      5. 若脚本输出豁免或无可修复项，可保留硬编码并说明原因。
+      
+      **脚本行为说明**
+      - 自动识别平台：`*.pc.*`/`/pc/` 判定为 `pc`，`*.wise.*`/`/wise/`/`*.mobile.*`/`/mobile/` 判定为 `mobile`，其余默认 `pc`
+      - 仅处理带行号的 `file:lines` 条目，不带行号的条目会被忽略
+      - `results[].lines` 为脚本实际生效的行号集合（已去重排序）
+      - `results[].issue_points` 直接展示脚本返回内容
+      - 脚本不做文件写入，不会污染工作区
+    cr_tool: cosmic_token_check.sh
+
+# ============================================================================
+# P1 级别 - 重要问题（建议修复）
+# ============================================================================
+
+# 【业务逻辑】
+p1_logic_checks:
+  - id: p1-avoid-unnecessary-watch-computed
+    description: |
+      非必要不使用 watch、computed，特别是未依赖响应式数据的场景。
+      - 可以主动触发的逻辑，禁止改为被动依赖
+      - 避免过度使用响应式导致性能问题
+      - 优先使用主动调用而非被动监听
+    cr_tool: san-faq
+    examples:
+      good: |
+        // 主动调用
+        handleClick() {
+          this.updateResult();
+        }
+      bad: |
+        // 被动监听（但数据并非频繁变化，可以主动触发）
+        watch: {
+          someData() {
+            this.updateResult();
+          }
+        }
+
+# ============================================================================
+# P2 级别 - 次要问题（可选改进）
+# ============================================================================
+
+# 【业务逻辑】
+p2_logic_checks:
+  - id: p2-extract-common-fields-to-store
+    description: |
+      多业务通用字段尽量提取到 Store 或独立模块。
+      - 用户信息、权限、配置等全局数据
+      - 应使用状态管理方案统一管理
+      - 避免在每个组件中独立维护
+      - 确保数据一致性
+    cr_tool: san-store-doc
+
+  - id: p2-early-api-request
+    description: |
+      接口请求尽量提前（如在 inited 阶段）。
+      - 在组件初始化时就发起请求
+      - 避免在 attached/mounted 后才请求
+      - 减少白屏时间
+      - 优化首屏加载体验
+    cr_tool: san-doc
+    examples:
+      good: |
+        inited() {
+          this.fetchData();  // 尽早请求
+        }
+      bad: |
+        attached() {
+          this.fetchData();  // 延迟请求
+        }
+
+  - id: p2-use-filter-for-formatting
+    description: |
+      简单的数据处理应使用 filter 等数组方法。
+      - San.js 中使用过滤器处理数据展示
+      - 提高模板可读性
+      - 利用框架提供的能力
+    cr_tool: san-doc
+    examples:
+      good: |
+        <div>{{ amount | currency }}</div>
+        <div>{{ date | dateFormat('YYYY-MM-DD') }}</div>
+      bad: |
+        <div>{{ formatCurrency(amount) }}</div>
+
+        <!-- 通过 computed 做简单的数据处理 -->
+        computed: {
+          formattedAmount() {
+            return this.data.get('amount').toFixed(2);
+          }
+        }
+        <div>{{ formattedAmount }}</div>

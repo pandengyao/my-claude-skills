@@ -1,0 +1,381 @@
+# 通用代码评审检查清单（适用所有项目）
+#
+# 严重程度分级（基于团队规范）：
+# - P0 (critical, 🔴): 严重问题，必须立即修复
+# - P1 (major, 🟡): 重要问题，建议修复
+# - P2 (minor, 🟢): 次要问题，可选改进
+# - P3 (nit, 💡): 建议性问题，完全可选
+#
+# 每个检查项的结构：
+# - id: 唯一标识符（格式：p0/p1/p2/p3-规则名，前缀表示严重程度）
+#   description: 检查项的详细说明
+#   examples: 示例代码（可选）
+
+# ============================================================================
+# Metadata - 检查清单元数据
+# ============================================================================
+metadata:
+  name: Common
+  description: 通用代码评审检查规则（适用所有项目）
+  inherits: []  # 基础层，不依赖其他 checklist
+
+# ============================================================================
+# P0 级别 - 严重问题（必须修复）
+# ============================================================================
+
+# 【安全性】
+p0_security_checks:
+  - id: p0-no-sensitive-data-log
+    description: |
+      禁止打印敏感数据到控制台。
+      - 禁止打印 token、密码、密钥等认证信息
+      - 禁止打印手机号、身份证、银行卡等个人隐私
+      - 禁止打印完整的用户数据或接口响应
+    examples:
+      good: |
+        console.log('登录成功');
+      bad: |
+        console.log('token:', response.token);
+        console.log('密码:', password);
+        console.log('用户数据:', user);  // 可能包含敏感信息
+
+  - id: p0-no-credential-transfer
+    description: |
+      禁止敏感凭证明文传输或落地。
+      - 禁止 BDUSS、Cookie 等敏感凭证在 URL、明文请求体、明文日志中传递
+      - 禁止本地持久化明文敏感凭证（localStorage/sessionStorage/文件等）
+
+# 【命名规范】
+p0_naming_checks:
+  - id: p0-naming-semantic
+    description: |
+      属性和变量命名必须精准，禁止模糊不清的命名。
+      - 变量名应清晰表达其用途和含义
+      - 避免使用 a、b、c、temp 等明显无意义命名
+      - 布尔值使用 is/has/should 等前缀
+      - 函数名使用动词开头，如 get/set/fetch/handle
+    examples:
+      good: |
+        const isUserLoggedIn = true;
+        const userList = [];
+        const currentIndex = 0;
+        function fetchUserData() {}
+        function handleSubmit() {}
+      bad: |
+        const flag = true;        // 不够语义化
+        const data = [];          // 过于泛化
+        const temp = 0;           // 无意义命名
+        function doIt() {}        // 无意义命名
+
+  - id: p0-kebab-case-folder-naming
+    description: |
+      目录命名必须使用中横线 (Kebab-case)。
+    examples:
+      good: |
+        // 目录名
+        src/user-profile/
+      bad: |
+        // 目录名
+        src/userProfile/
+
+# 【数据处理】
+p0_data_checks:
+  - id: p0-division-by-zero-check
+    description: |
+      数学运算必须校验分母，严禁分母为 0 的情况。
+      - 除法运算前检查分母不为 0
+      - 提供合理的兜底值或错误处理
+    examples:
+      good: |
+        const ratio = divisor !== 0 ? dividend / divisor : 0;
+        const average = count > 0 ? sum / count : 0;
+      bad: |
+        const ratio = dividend / divisor;  // divisor 可能为 0
+        const average = sum / count;       // count 可能为 0
+
+# 【业务逻辑】
+p0_logic_checks:
+  - id: p0-proper-error-handling
+    description: |
+      禁止空的 catch 块，并控制 try-catch 包裹范围。
+      - catch 块必须处理错误或记录日志
+      - 禁止静默捕获异常
+      - try 块应只包裹可能抛出异常的代码
+      - 避免范围过大，难以定位具体错误位置
+    examples:
+      good: |
+        try {
+          await api.save(data);
+        } catch (error) {
+          console.error('保存失败:', error);
+        }
+      bad: |
+        try {
+          await fetchData();
+        } catch (error) {
+          // 空 catch
+        }
+        
+        try {
+          processData();
+          await api.save(data);
+          updateUI();
+        } catch (error) {
+          console.error('错误:', error);  // 范围过大
+        }
+
+  - id: p0-no-conflicting-logic
+    description: |
+      修复 if 内外层逻辑互斥或死锁的问题，确保逻辑路径可达。
+      - 检查条件分支是否相互矛盾
+      - 确保每个逻辑分支都可以被执行到
+      - 避免逻辑死锁
+    examples:
+      good: |
+        if (isAdmin) {
+          grantFullAccess();
+        } else {
+          grantLimitedAccess();
+        }
+      bad: |
+        if (isAdmin) {
+          grantFullAccess();
+        }
+        grantLimitedAccess();  // 管理员也会被限制访问，逻辑冲突
+
+# ============================================================================
+# P1 级别 - 重要问题（建议修复）
+# ============================================================================
+
+# 【代码风格】
+p1_style_checks:
+  - id: p1-no-hardcoded-values
+    description: |
+      禁止在 JS/TS 业务逻辑中硬编码中文和魔法数字，必须采用服务下发或枚举/常量定义。
+      - 中文文案：从后端/配置文件获取或定义枚举映射表
+      - 魔法数字：使用常量定义有业务含义的数字
+      - URL：使用配置/环境变量/常量统一管理
+      - 此规则仅适用于 JS/TS 业务代码，不适用于 CSS/Less/Sass 等样式文件中的常规数值（如 width: 20px、font-size: 14px、border-radius: 4px 等）
+      - Tailwind CSS 原子类中的数值（如 `w-4`、`p-2`、`text-sm`）不属于硬编码，跳过此规则
+    examples:
+      good: |
+        const STATUS_MAP = { ACTIVE: '启用' };
+        const STATUS_ACTIVE = 1;
+        const MAX_RETRY_COUNT = 3;
+        const API_BASE_URL = getConfig('apiBaseUrl');
+        
+        if (status === STATUS_ACTIVE) {
+          text = STATUS_MAP[status];
+        }
+      bad: |
+        if (status === 1) {
+          text = '启用';  // 硬编码
+        }
+        fetch('https://api.example.com/v1/user');  // 硬编码 URL
+
+  - id: p1-use-inherited-props
+    description: |
+      必须优先使用继承组件已有的属性和方法，禁止重复造轮子。
+      - 检查父组件/基础组件是否已提供相关功能
+      - 避免重新实现已有功能
+      - 提高代码复用性
+    examples:
+      good: |
+        // 使用基础组件提供的方法
+        this.inherited.validate();
+      bad: |
+        // 重复实现已有的验证逻辑
+        this.validate() { /* 重复代码 */ }
+
+  - id: p1-refactor-complex-logic
+    description: |
+      重构逻辑冗长且不易读的代码块。
+      - 单个函数不应超过 50 行
+      - 嵌套层级不应超过 3 层
+      - 复杂逻辑应拆分为多个小函数
+      - 添加必要的注释说明
+    examples:
+      good: |
+        function processUser(user) {
+          const validated = validateUser(user);
+          const formatted = formatUserData(validated);
+          const saved = saveUser(formatted);
+          return saved;
+        }
+
+        function validateUser(user) { /* ... */ }
+        function formatUserData(user) { /* ... */ }
+        function saveUser(user) { /* ... */ }
+      bad: |
+        function processUser(user) {
+          // 100+ 行的复杂逻辑
+          // 多层嵌套
+          // 难以理解和维护
+        }
+
+  - id: p1-remove-unused-functions
+    description: |
+      删除未使用的 function，保持代码整洁。
+      - 移除未被调用的函数
+      - 减少代码体积
+      - 降低维护成本
+      - 避免产生困惑
+    examples:
+      good: |
+        // 只保留被使用的函数
+        function getUserData() {
+          return fetchUser();
+        }
+        
+        // 在某处调用
+        const data = getUserData();
+      bad: |
+        // 定义了但从未使用
+        function processUser() {
+          // ...
+        }
+        
+        function formatUser() {
+          // ...
+        }
+        
+        // 没有任何地方调用这些函数
+
+# ============================================================================
+# P2 级别 - 次要问题（可选改进）
+# ============================================================================
+
+# 【代码风格】
+p2_style_checks:
+  - id: p2-extract-reusable-logic
+    description: |
+      上下文不依赖的逻辑，应独立抽离为 Utils/Hooks，实现多处复用。
+      - 纯函数逻辑提取到 utils
+      - 可复用的业务逻辑提取到 hooks/composables
+      - 避免复制粘贴代码
+    examples:
+      good: |
+        // utils/format.js
+        export function formatDate(date) { ... }
+        export function formatCurrency(amount) { ... }
+
+        // 在多个组件中使用
+        import { formatDate } from '@/utils/format';
+      bad: |
+        // 在每个组件中重复实现
+        formatDate(date) { /* 重复代码 */ }
+
+# 【业务逻辑】
+p2_logic_checks:
+  - id: p2-use-else-if-for-mutually-exclusive
+    description: |
+      互斥的业务分支强制使用 else if。
+      - 明确表达互斥关系
+      - 避免多个条件同时满足导致的逻辑错误
+      - 提高代码可读性
+    examples:
+      good: |
+        if (status === 'pending') {
+          // ...
+        } else if (status === 'approved') {
+          // ...
+        } else if (status === 'rejected') {
+          // ...
+        }
+      bad: |
+        if (status === 'pending') { }
+        if (status === 'approved') { }  // 没有明确互斥关系
+        if (status === 'rejected') { }
+
+  - id: p2-evaluate-impact-before-modify
+    description: |
+      修改基础业务代码时，必须产出影响面评估。
+      - 搜索所有引用该代码的地方
+      - 检查是否影响其他业务模块
+      - 与相关开发者沟通确认
+      - 记录修改的影响范围
+
+# 【数据处理】
+p2_data_checks:
+  - id: p2-avoid-type-changing-fallback
+    description: |
+      移除会更改原字段类型的非必要兜底（如 null 被转为 "" 导致类型错误）。
+      - 保持数据类型一致性
+      - 如果原类型是 string，兜底也应该是 string
+      - 避免类型转换带来的隐藏问题
+    examples:
+      good: |
+        const name = user.name ?? '';       // string -> string
+        const count = data.count ?? 0;      // number -> number
+        const items = data.items ?? [];     // array -> array
+      bad: |
+        const name = user.name ?? 0;        // string -> number (类型改变)
+        const count = data.count ?? '';     // number -> string (类型改变)
+
+# ============================================================================
+# P3 级别 - 建议性问题（完全可选）
+# ============================================================================
+
+# 【代码风格】
+p3_style_checks:
+  - id: p3-console-log-prefix
+    description: |
+      必要的 console 日志建议添加明确前缀，便于在控制台快速筛选。
+      - 使用方括号标注模块或功能名称
+      - 便于调试时快速定位和过滤日志
+      - 仅针对直接 `console.*` 输出（如 `console.log/info/warn/error`）进行检查
+    examples:
+      good: |
+        console.log('[SSE Chunk Data]', data);
+        console.info('[Recorder] Call: recorder.start');
+      bad: |
+        console.log(data);
+        console.log('用户信息', userInfo);
+
+  - id: p3-add-function-comments
+    description: |
+      为关键函数或复杂逻辑补充必要的注释。
+      - 复杂函数应添加注释说明用途
+      - 公共 API 函数应有 JSDoc 注释
+      - 注释应说明参数、返回值、异常情况
+      - 不要过度注释（代码即文档）：变量名和逻辑本身已足够表达意图时，不需要注释，强行添加反而是噪音
+    examples:
+      good: |
+        /**
+         * 计算用户积分
+         * @param {Object} user - 用户对象
+         * @param {number} user.level - 用户等级 (1-10)
+         * @param {number} user.purchaseAmount - 购买金额
+         * @returns {number} 积分数值
+         * @throws {Error} 当用户等级无效时抛出异常
+         */
+        function calculatePoints(user) {
+          if (user.level < 1 || user.level > 10) {
+            throw new Error('Invalid user level');
+          }
+          return user.purchaseAmount * user.level * 0.1;
+        }
+      bad: |
+        // 没有注释，复杂逻辑难以理解
+        function calculatePoints(user) {
+          if (user.level < 1 || user.level > 10) {
+            throw new Error('Invalid user level');
+          }
+          return user.purchaseAmount * user.level * 0.1;
+        }
+
+  - id: p3-file-end-newline
+    description: |
+      文件末尾必须包含一个换行符（newline）。
+      - 符合 POSIX 标准要求
+    examples:
+      good: |
+        文件最后一行代码后有一个换行
+      bad: |
+        文件最后一行代码后没有换行
+
+# 【命名规范】
+p3_naming_checks:
+  - id: p3-avoid-generic-business-names
+    description: |
+      业务场景中尽量避免使用 data、item 等过于泛化的命名，建议使用更语义化的名称。

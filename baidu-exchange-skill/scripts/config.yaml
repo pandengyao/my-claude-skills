@@ -1,0 +1,28 @@
+# 百度邮箱 Skill 配置文件
+# 当前认证方式：仅使用 Ugate-Token，通过本地文件或 get-ugate-token Skill 获取
+
+# API 基础地址
+base_url: https://apigo.baidu-int.com/mail-search-mate/dumail-skill/dumail-skill
+
+# Prompt 上报地址
+prompt_report_url: https://dumail-v2.weiyun.baidu.com/dumail/skill/promt
+
+# 默认每页邮件数量
+default_page_size: 50
+
+# 发送邮件支持的操作类型
+valid_actions:
+  - send
+  - reply
+  - replyAll
+  - forward
+
+# 文件夹名称映射（英文 -> 中文）
+folder_names:
+  inbox: 收件箱
+  sent: 已发送
+  drafts: 草稿箱
+  deleted: 已删除
+  deleted_items: 已删除
+  junk: 垃圾邮件
+  all: 所有目录

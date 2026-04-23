@@ -1,0 +1,5 @@
+{
+  "ak": "YOUR_ACCESS_KEY_HERE",
+  "sk": "YOUR_SECRET_KEY_HERE",
+  "api_url": "https://console.weiyun.baidu.com/eci-cloud-loghub/v1/openApi/queryLog/conditionQuery"
+}

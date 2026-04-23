@@ -1,0 +1,337 @@
+# 前端代码评审检查清单（适用所有前端项目）
+#
+# 严重程度分级（基于团队规范）：
+# - P0 (critical, 🔴): 严重问题，必须立即修复
+# - P1 (major, 🟡): 重要问题，建议修复
+# - P2 (minor, 🟢): 次要问题，可选改进
+# - P3 (nit, 💡): 建议性问题，完全可选
+#
+# 每个检查项的结构：
+# - id: 唯一标识符（格式：p0/p1/p2/p3-规则名，前缀表示严重程度）
+#   description: 检查项的详细说明
+#   examples: 示例代码（可选）
+
+# ============================================================================
+# Metadata - 检查清单元数据
+# ============================================================================
+metadata:
+  name: Frontend
+  description: 前端项目通用的检查规则
+  inherits: []  # 前端特定规则，不继承其他 checklist
+
+# ============================================================================
+# P0 级别 - 严重问题（必须修复）
+# ============================================================================
+
+# 【安全性】
+p0_security_checks:
+  - id: p0-forbidden-npm-dependencies
+    description: |
+      禁止依赖（除特别说明外禁止所有版本）：iview、mint-ui、highcharts、fis/fis3@1.x、phantomjs。
+      禁用工具/包（需替代）：
+      - uglifyjs → terser（含 uglifyjs-webpack-plugin 等）
+      - fecs → eslint + stylelint（@ecomfe/eslint-config、@ecomfe/stylelint-config）
+      - eslint-loader → eslint-webpack-plugin
+      - extract-text-webpack-plugin → mini-css-extract-plugin
+      - babel-polyfill → core-js
+      - babel-core 与 babel-plugin-*/babel-preset-* → @babel/*
+      - eslint-plugin-babel → @babel/eslint-plugin
+      - babel-eslint → @babel/eslint-parser
+      - node-sass → sass
+      - tslint → @ecomfe/eslint-config 的 TypeScript 配置
+
+      建议替代：moment → date-fns/dayjs；underscore → ramda/lodash。
+
+# 【数据处理】
+p0_data_checks:
+  - id: p0-destructuring-default-values
+    description: |
+      解构赋值后如果会访问属性或调用方法，必须提供默认值，防止读取 undefined 导致报错。
+      - 解构后会调用 .map()/.filter() 等方法的数组/对象，必须提供默认值
+      - 解构后会读取嵌套属性（如 obj.name）的对象，必须提供默认值
+      - 仅用于相等性比较（===/!==）、透传给子组件、或 TypeScript 已标记为可选（?）且无属性访问的参数，不需要强制添加默认值
+    examples:
+      good: |
+        const { data = [] } = response;       // data 后续会调用 .map()，需要默认值
+        const { user = {} } = state;           // user 后续会读取 user.name，需要默认值
+        const [first = null] = items;          // first 后续会读取属性，需要默认值
+        // 以下情况不需要默认值：
+        const { selectedId }: { selectedId?: string } = props;  // 仅用于 === 比较，undefined 是合理状态
+      bad: |
+        const { data } = response;  // data 后续调用 data.map() 会崩溃
+        const { user } = state;     // user 后续读取 user.name 会崩溃
+
+# 【代码风格】
+p0_style_checks:
+  - id: p0-safari13-compatibility
+    description: |
+      CSS 和 JavaScript 必须兼容 Safari 13 及以上版本。
+
+      **适用范围：** 仅限 wise / 移动端项目（路径含 wise、mobile、h5、mip 等关键词）。PC 端等非移动端文件跳过此规则。
+      
+      **检查方法：**
+      - 使用 https://caniuse.com 检查 CSS 属性和 JavaScript API 的兼容性
+      - 确认 Safari 13+ 是否完全支持（包括 iOS Safari 和 macOS Safari）
+      - 如果不支持，需要添加 polyfill 或使用兼容的替代方案
+      
+      **注意事项：**
+      - 重点关注新增的 CSS 属性和较新的浏览器 API
+      - 对于不确定的特性，优先使用 caniuse.com 检查兼容性
+    examples:
+      good: |
+        // 使用前先在 caniuse.com 检查兼容性
+        // 如果不支持，使用兼容的替代方案
+
+        // 示例：使用 margin 替代 flex gap 实现卡片列表间距（flex gap 在 Safari 14.1+ 才支持）
+        .card-list {
+          display: flex;
+          flex-wrap: wrap;
+          margin: -8px;
+        }
+        .card-item {
+          flex: 1 0 auto;
+          margin: 8px;
+        }
+      bad: |
+        // 直接使用较新的 CSS 属性，未检查兼容性
+        .card-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 16px;
+        }
+        .card-item {
+          flex: 1 0 auto;
+        }
+
+# 【业务逻辑】
+p0_logic_checks:
+  - id: p0-no-await-in-sync-iterator
+    description: |
+      禁止在 forEach、map 等同步迭代器中直接使用 await。
+      - forEach/map 不会等待异步操作完成
+      - 使用 for...of 进行顺序执行
+      - 使用 Promise.all 进行并发执行
+    examples:
+      good: |
+        // 顺序执行
+        for (const item of items) {
+          await processItem(item);
+        }
+        
+        // 并发执行
+        await Promise.all(items.map(item => processItem(item)));
+      bad: |
+        // forEach 不会等待 await
+        items.forEach(async item => {
+          await processItem(item);
+        });
+        
+        // map 返回的是 Promise 数组
+        items.map(async item => {
+          await processItem(item);
+        });
+
+# ============================================================================
+# P1 级别 - 重要问题（建议修复）
+# ============================================================================
+
+# 【命名规范】
+p1_naming_checks:
+  - id: p1-kebab-case-attr-and-class
+    description: |
+      以下命名必须使用中横线 (Kebab-case)：
+      - 组件自定义属性
+      - CSS 类名
+    examples:
+      good: |
+        .user-card { }
+        <my-component user-name="Alice"></my-component>
+      bad: |
+        .userCard { }
+        <my-component userName="Alice"></my-component>
+
+# 【代码风格】
+p1_style_checks:
+  - id: p1-no-inline-styles
+    description: |
+      禁止使用大量的内联样式 (Inline Styles)。
+      - 应使用 CSS 类或 CSS Modules
+      - 仅在动态计算且无法预定义的情况下使用内联样式
+      - 提高样式的可维护性和复用性
+
+      **豁免：** 使用 Tailwind CSS（className 中的原子类）不属于内联样式，跳过此规则。
+    examples:
+      good: |
+        <div class="user-card"></div>
+        <!-- 动态计算的场景可以使用 -->
+        <div style="width: {{dynamicWidth}}px"></div>
+      bad: |
+        <div style="width: 100px; height: 50px; color: red; padding: 10px; margin: 5px;"></div>
+
+  - id: p1-complete-ts-declaration
+    description: |
+      业务字段的 TypeScript 声明必须补充详细定义，拒绝 any，并优先复用已有接口。
+      - **优先复用已有接口**：查找 types/ 或 interfaces/ 目录，改进不完整的已有接口，或通过 extends 扩展
+      - 接口定义应完整，包含所有字段，添加字段注释
+      - 避免使用 any 和过于宽泛的类型
+      - 业务字段的 type、status 等枚举必须明确定义（如 'active' | 'inactive'），禁止使用 string/number
+    examples:
+      good: |
+        // 复用已有接口
+        import { User } from '@/types/user';
+        
+        // 扩展接口
+        interface UserResponse extends BaseResponse {
+          data: User;
+        }
+        
+        // 新增接口：完整定义 + 枚举明确
+        interface Product {
+          /** 产品状态 */
+          status: 'active' | 'inactive';
+          /** 产品类型 */
+          type: 1 | 2 | 3;
+        }
+      bad: |
+        // 重复定义（应复用 @/types/user）
+        interface User { id: number; name: string; }
+        
+        // 类型不明确
+        interface Product {
+          data: any;        // 禁止 any
+          status: string;   // 应明确枚举值
+        }
+
+  - id: p1-image-size-limit
+    description: |
+      新引入的图片资源必须控制文件大小（PNG/JPG < 200KB，SVG < 50KB）。
+      - 大图片应压缩优化或使用 CDN + 懒加载
+      - 考虑使用 WebP 格式
+    examples:
+      good: |
+        import logo from '@/assets/logo.png';  // 50KB
+        <img loading="lazy" src="{{largeImage}}" />
+      bad: |
+        import banner from '@/assets/banner.png';  // 2MB
+        <img src="{{hugeImage}}" />  // 5MB
+
+# 【业务逻辑】
+p1_logic_checks:
+  - id: p1-error-handling-feedback
+    description: |
+      关键业务操作失败需要给用户明确反馈，形成错误处理闭环。
+      - 接口请求失败必须有用户提示（toast/message）
+      - 关键操作失败需要告知用户原因
+      - 避免静默失败，用户不知道发生了什么
+    examples:
+      good: |
+        async fetchData() {
+          try {
+            const res = await api.getUserData();
+            this.data.set('user', res.data);
+          } catch (error) {
+            this.toast('获取用户信息失败，请稍后重试');
+          }
+        }
+      bad: |
+        async fetchData() {
+          try {
+            const res = await api.getUserData();
+            this.data.set('user', res.data);
+          } catch (error) {
+            console.error(error);  // 只打印日志，用户无感知
+          }
+        }
+
+# ============================================================================
+# P2 级别 - 次要问题（可选改进）
+# ============================================================================
+
+# 【代码风格】
+p2_style_checks:
+  - id: p2-global-imports-in-entry
+    description: |
+      属于全局引入的模块，应提升至主入口文件。
+      - 全局样式、polyfill、第三方库初始化等
+      - 应在 main.js/index.js 中统一引入
+      - 避免在业务组件中重复引入
+      - 减少打包体积
+    examples:
+      good: |
+        // main.js
+        import 'normalize.css';
+        import '@/styles/global.css';
+      bad: |
+        // 在多个组件中重复引入
+        import 'normalize.css';
+
+  - id: p2-css-property-order
+    description: |
+      同一 rule set 下的属性书写顺序建议：
+      - 如包含 content，应放在最前面
+      - Formatting Model（布局方式、位置）→ Box Model（尺寸）→ Typographic（文本相关）→ Visual（视觉效果）
+      - 按功能分组书写，提升可读性
+
+      说明：
+      - Formatting Model：position/top/right/bottom/left/float/display/overflow 等
+      - Box Model：border/margin/padding/width/height 等
+      - Typographic：font/line-height/text-align/word-wrap 等
+      - Visual：background/color/transition/list-style 等
+
+  - id: p2-avoid-css-properties
+    description: |
+      避免使用以下 CSS 属性, 如果确需使用，请加业务注释说明原因：
+      - text-size-adjust：影响手百内字体调整功能
+    examples:
+      bad: |
+        .text {
+          text-size-adjust: 100%; // xx业务需要
+        }
+
+# 【业务逻辑】
+p2_logic_checks:
+  - id: p2-simplify-conditional-logic
+    description: |
+      判断逻辑应简化（如使用可选链 ?.）。
+      - 使用现代 JavaScript 语法简化代码
+      - 提高可读性
+      - 减少嵌套层级
+    examples:
+      good: |
+        const city = user?.address?.city;
+        const name = user?.name ?? 'Guest';
+      bad: |
+        const city = user && user.address && user.address.city;
+        const name = user ? user.name : 'Guest';
+
+# 【数据处理】
+p2_data_checks:
+  - id: p2-use-nullish-coalescing
+    description: |
+      仅当 `||` 会误吞业务有效的假值（0、''、false）时，才建议替换为 `??`。
+
+      **判断方法（必须逐步确认）：**
+      1. 该字段在业务中 0 / '' / false 是否为合法值？
+         - 是 → 应使用 `??`，避免合法值被兜底覆盖（如 count、flag）
+         - 否 → 使用 `||` 正确，不需要改（如 id、url，0 或空串本身无意义）
+      2. 兜底值是否恰好等于被额外捕获的假值？
+         - `x || ''` / `x || 0` / `x || false` 与 `??` 行为一致，无需替换
+    examples:
+      good: |
+        // 需要用 ??：0、false、'' 是业务有效值，不能被兜底覆盖
+        const count = data.count ?? 10;     // 0 是有效计数
+        const flag = data.flag ?? true;     // false 是有效状态
+        const text = data.text ?? '默认';   // '' 是有效输入
+
+        // 用 || 正确：假值在业务中本身就不合法，需要一并回退
+        const id = item.id || fallbackId;          // id 为 0 也无意义
+        const url = item.url || fallbackUrl;       // url 为 '' 也无意义
+
+        // 用 || 正确：兜底值等于假值本身，与 ?? 行为一致
+        const name = user?.name || '';
+        const index = data?.index || 0;
+      bad: |
+        // 0 是有效计数，被 || 误替换为 10
+        const count = data.count || 10;
+        // false 是有效状态，被 || 误替换为 true
+        const flag = data.flag || true;

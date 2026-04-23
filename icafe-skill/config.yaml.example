@@ -1,0 +1,155 @@
+# iCafe API Configuration Example
+# Copy this file to config.yaml and fill in your credentials
+
+# API Base URL
+base_url: "http://icafeapi.baidu-int.com"
+
+# Authentication credentials
+# username input your name 
+# pssword into https://console.cloud.baidu-int.com/api/icafe/users/virtual
+auth:
+  username: "your_username"
+  password: "your_virtual_password"
+
+# Default space for operations
+default_space: "your-space-id"
+
+# Request settings
+request:
+  timeout: 30
+  max_retries: 3
+  retry_backoff: 1.5
+
+# Logging settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Workflow configuration
+workflow:
+  space: your-space-id
+  # Default issue_type to use (can be overridden via --type flag)
+  default_issue_type: "Bug"
+  # Workflow configuration for different issue_types
+  issue_types:
+    Bug:
+      status_nodes:
+        - 新建卡片
+        - 新建
+        - 已分配
+        - 已分析
+        - 已修复
+        - 验证中
+        - 已验证待上线-云端
+        - 重新打开
+        - 已关闭
+        - 已上线
+      # Core status transition rules (current status -> valid next status)
+      transition_rules:
+        新建卡片:
+          - 新建
+        新建:
+          - 新建
+          - 已分配
+        已分配:
+          - 已分配
+          - 已分析
+        已分析:
+          - 已分析
+          - 已修复
+          - 重新打开
+          - 已关闭
+        已修复:
+          - 已分析
+          - 已修复
+          - 验证中
+          - 重新打开
+          - 已关闭
+        验证中:
+          - 验证中
+          - 已验证待上线-云端
+          - 重新打开
+          - 已关闭
+        已验证待上线-云端:
+          - 已验证待上线-云端
+          - 重新打开
+          - 已关闭
+          - 已上线
+        重新打开:
+          - 已分配
+          - 重新打开
+        已关闭:
+          - 重新打开
+          - 已关闭
+          - 已上线
+        已上线:
+          - 重新打开
+          - 已关闭
+          - 已上线
+      # Transition feature descriptions
+      transition_features:
+        - All statuses support self-loop (keep current status)
+        - 重新打开 is the rework node, can only transition to 已分配/self
+        - 已验证待上线-云端 is the pre-release node, can transition directly to 已上线
+        - 已关闭 supports reactivation (重新打开) or direct release
+        - 已上线 is the final status, supports rollback to 重新打开/已关闭
+        - Closing a card requires a comment (closing reason)
+    # Add more issue_types here as needed
+    # Story:
+    #   status_nodes:
+    #     - 新建
+    #     - 已分配
+    #     - 开发中
+    #     - 待测试
+    #     - 测试中
+    #     - 已完成
+    #   transition_rules:
+    #     新建:
+    #       - 新建
+    #       - 已分配
+    #     已分配:
+    #       - 已分配
+    #       - 开发中
+    #     开发中:
+    #       - 开发中
+    #       - 待测试
+    #     待测试:
+    #       - 待测试
+    #       - 测试中
+    #     测试中:
+    #       - 测试中
+    #       - 已完成
+    #     已完成:
+    #       - 已完成
+    #   transition_features:
+    #     - All statuses support self-loop
+    #     - 已完成 is the final status
+
+# Default field values based on Bug分析结论
+# When updating a card with Bug分析结论, if user doesn't specify these fields,
+# they will be automatically filled with the default values below.
+fileds:
+  Bug分析结论:
+    非Bug:
+      QA标注Bug分析: "无须分析"
+      Bug与用例关联: "非Bug无需关联"
+      Bug分析结论: "非Bug"
+      Bug问题原因: "非Bug"
+      福特-版本计划: "Reject"
+    车企/Teri1自身问题:
+      QA标注Bug分析: "无须分析"
+      Bug与用例关联: "非Bug无需关联"
+      Bug分析结论: "非Bug"
+      Bug问题原因: "非Bug"
+      福特-版本计划: "Reject"
+    需修复:
+      福特-版本计划: "HALO 2.1.0/A ENG CD542 2st OTA"
+
+# Test environment (for development and testing)
+# Space: edc-scrum
+# Card ID: 352568
+# Note: Test phase only allows read operations
+test:
+  space: "edc-scrum"
+  card_id: "352568"
+  read_only: true
