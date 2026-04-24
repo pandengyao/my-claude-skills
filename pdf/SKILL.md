@@ -232,7 +232,7 @@ pdftk input.pdf rotate 1east output rotated.pdf
 
 ### Extract Text from Scanned PDFs
 ```python
-# Requires: ~/py312/bin/pip install pytesseract pdf2image
+# Requires: pip install pytesseract pdf2image
 import pytesseract
 from pdf2image import convert_from_path
 

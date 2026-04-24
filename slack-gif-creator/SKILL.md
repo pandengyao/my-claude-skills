@@ -250,5 +250,5 @@ Be creative! Combine concepts (bouncing + rotating, pulsing + sliding, etc.) and
 ## Dependencies
 
 ```bash
-~/py312/bin/pip install pillow imageio numpy
+pip install pillow imageio numpy
 ```
