@@ -40,7 +40,7 @@ def load_config(model_name, trust_remote_code=False, token=None):
 
 
 def fetch_model_card(model_name, token=None):
-    """从 HuggingFace Hub 获取模型卡片信息"""
+    """从 HuggingFace Hub 获取模型卡片的所有可用信息"""
     result = {"model_name": model_name}
     try:
         from huggingface_hub import model_info as hf_model_info
@@ -50,16 +50,61 @@ def fetch_model_card(model_name, token=None):
         info = hf_model_info(model_name, **kwargs)
         result["model_id"] = info.id
         result["author"] = info.author
+        result["sha"] = info.sha
+        result["created_at"] = str(info.created_at) if info.created_at else None
+        result["last_modified"] = str(info.last_modified) if info.last_modified else None
+        result["private"] = info.private
+        result["gated"] = getattr(info, "gated", None)
+        result["disabled"] = getattr(info, "disabled", None)
         result["tags"] = info.tags or []
         result["pipeline_tag"] = info.pipeline_tag
         result["library_name"] = info.library_name
-        result["license"] = getattr(info, "card_data", None) and getattr(info.card_data, "license", None)
         result["downloads"] = info.downloads
         result["likes"] = info.likes
-    except Exception:
-        pass
+        result["trending_score"] = getattr(info, "trending_score", None)
 
-    # 下载 README.md 前 300 行提取模型介绍
+        # card_data 完整信息
+        card_data = getattr(info, "card_data", None)
+        if card_data:
+            result["license"] = getattr(card_data, "license", None)
+            result["language"] = getattr(card_data, "language", None)
+            result["datasets"] = getattr(card_data, "datasets", None)
+            result["metrics"] = getattr(card_data, "metrics", None)
+            result["base_model"] = getattr(card_data, "base_model", None)
+            result["model_name_card"] = getattr(card_data, "model_name", None)
+            result["co2_eq_emissions"] = getattr(card_data, "co2_eq_emissions", None)
+            result["eval_results"] = None
+            eval_res = getattr(card_data, "eval_results", None)
+            if eval_res:
+                result["eval_results"] = [
+                    {"task_type": getattr(r, "task_type", None),
+                     "dataset_type": getattr(r, "dataset_type", None),
+                     "dataset_name": getattr(r, "dataset_name", None),
+                     "metric_type": getattr(r, "metric_type", None),
+                     "metric_value": getattr(r, "metric_value", None)}
+                    for r in eval_res
+                ]
+            # 保存完整 card_data dict
+            try:
+                result["card_data_raw"] = card_data.to_dict() if hasattr(card_data, "to_dict") else None
+            except Exception:
+                pass
+        else:
+            result["license"] = None
+
+        # siblings 文件列表
+        if info.siblings:
+            result["siblings"] = [
+                {"filename": s.rfilename, "size": getattr(s, "size", None)}
+                for s in info.siblings
+            ]
+        else:
+            result["siblings"] = []
+
+    except Exception as e:
+        result["_card_error"] = str(e)
+
+    # 下载完整 README.md
     try:
         from huggingface_hub import hf_hub_download
         kwargs = {}
@@ -67,18 +112,15 @@ def fetch_model_card(model_name, token=None):
             kwargs["token"] = token
         readme_path = hf_hub_download(model_name, "README.md", **kwargs)
         with open(readme_path, "r", encoding="utf-8") as f:
-            lines = []
-            for i, line in enumerate(f):
-                if i >= 300:
-                    break
-                lines.append(line)
-        readme_text = "".join(lines)
+            readme_text = f.read()
+        result["readme_content"] = readme_text
 
         # 提取 YAML frontmatter 后面的介绍段落
+        lines = readme_text.split("\n")
         intro_lines = []
         in_frontmatter = False
         past_frontmatter = False
-        for line in lines:
+        for line in lines[:300]:
             stripped = line.strip()
             if stripped == "---" and not past_frontmatter:
                 if in_frontmatter:
@@ -90,11 +132,9 @@ def fetch_model_card(model_name, token=None):
             if in_frontmatter:
                 continue
             if past_frontmatter or not stripped.startswith("---"):
-                # 跳过标题行和空行直到找到正文
                 if stripped and not stripped.startswith("#"):
                     intro_lines.append(line.rstrip())
                 elif intro_lines:
-                    # 遇到空行或标题时停止
                     if not stripped and len(intro_lines) > 2:
                         break
                     elif stripped.startswith("#") and len(intro_lines) > 1:
@@ -119,6 +159,137 @@ def fetch_model_card(model_name, token=None):
         pass
 
     return result
+
+
+def download_repo_files(model_name, token=None):
+    """下载仓库中除权重文件外的所有配置文件"""
+    from huggingface_hub import model_info as hf_model_info, hf_hub_download
+
+    WEIGHT_EXTENSIONS = {".safetensors", ".bin", ".gguf", ".pth", ".pt", ".h5", ".msgpack", ".ot"}
+    SKIP_PREFIXES = (".", "__")
+
+    result = {}
+    try:
+        kwargs = {}
+        if token:
+            kwargs["token"] = token
+        info = hf_model_info(model_name, **kwargs)
+
+        if not info.siblings:
+            return result
+
+        for sibling in info.siblings:
+            fname = sibling.rfilename
+            # 跳过权重文件
+            ext = "." + fname.rsplit(".", 1)[-1] if "." in fname else ""
+            if ext.lower() in WEIGHT_EXTENSIONS:
+                continue
+            # 跳过隐藏文件和目录前缀
+            if any(part.startswith(tuple(SKIP_PREFIXES)) for part in fname.split("/")):
+                continue
+            # 跳过过大的文件（>5MB 的非文本文件，如图片等）
+            size = getattr(sibling, "size", None)
+            if size and size > 5 * 1024 * 1024:
+                # 仍保留 JSON 文件，即使较大
+                if not fname.endswith(".json"):
+                    result[fname] = f"<skipped: {size} bytes>"
+                    continue
+
+            try:
+                dl_kwargs = {}
+                if token:
+                    dl_kwargs["token"] = token
+                file_path = hf_hub_download(model_name, fname, **dl_kwargs)
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # JSON 文件解析为 dict
+                if fname.endswith(".json"):
+                    try:
+                        result[fname] = json.loads(content)
+                    except json.JSONDecodeError:
+                        result[fname] = content
+                else:
+                    result[fname] = content
+            except UnicodeDecodeError:
+                result[fname] = "<binary file, skipped>"
+            except Exception as e:
+                result[fname] = f"<download error: {e}>"
+
+    except Exception as e:
+        result["_error"] = str(e)
+
+    return result
+
+
+def validate_against_config(explore_result, raw_config):
+    """校验探索结果与 config.json 原始值的一致性"""
+    validation = {"checked_fields": [], "mismatches": [], "warnings": []}
+
+    if not raw_config:
+        validation["warnings"].append("无法获取 raw config.json，跳过校验")
+        return validation
+
+    # 需要校验的关键字段
+    check_fields = [
+        "hidden_size", "num_hidden_layers", "num_attention_heads",
+        "num_key_value_heads", "intermediate_size", "vocab_size",
+        "max_position_embeddings", "torch_dtype", "model_type",
+        "head_dim", "tie_word_embeddings",
+        # MoE
+        "n_routed_experts", "num_local_experts", "num_experts_per_tok",
+        "moe_intermediate_size", "n_shared_experts", "first_k_dense_replace",
+        # MLA
+        "kv_lora_rank", "q_lora_rank", "qk_nope_head_dim", "qk_rope_head_dim", "v_head_dim",
+        # RoPE
+        "rope_theta",
+    ]
+
+    key_config = explore_result.get("config", {})
+
+    for field in check_fields:
+        # 在 raw_config 中查找（包括子配置）
+        raw_val = raw_config.get(field)
+        explore_val = key_config.get(field)
+
+        # 也检查子配置
+        if raw_val is None:
+            for k, v in raw_config.items():
+                if isinstance(v, dict) and field in v:
+                    raw_val = v[field]
+                    break
+
+        if raw_val is not None:
+            validation["checked_fields"].append({
+                "field": field, "config_value": raw_val, "explore_value": explore_val
+            })
+            if explore_val is not None and str(raw_val) != str(explore_val):
+                validation["mismatches"].append({
+                    "field": field,
+                    "config_value": raw_val,
+                    "explore_value": explore_val,
+                    "note": f"config.json 值 {raw_val} 与探索结果 {explore_val} 不一致"
+                })
+
+    # 特殊校验：head_dim 与 hidden_size/num_attention_heads 的关系
+    h = raw_config.get("hidden_size")
+    n_heads = raw_config.get("num_attention_heads")
+    explicit_head_dim = raw_config.get("head_dim")
+    if h and n_heads and not explicit_head_dim:
+        implied_head_dim = h // n_heads
+        validation["checked_fields"].append({
+            "field": "head_dim (implied)",
+            "config_value": implied_head_dim,
+            "explore_value": implied_head_dim,
+            "note": f"hidden_size({h}) / num_attention_heads({n_heads}) = {implied_head_dim}"
+        })
+
+    # 特殊校验：num_key_value_heads 缺失时的默认值
+    if raw_config.get("num_attention_heads") and not raw_config.get("num_key_value_heads"):
+        validation["warnings"].append(
+            f"num_key_value_heads 未在 config.json 中指定，默认等于 num_attention_heads={raw_config['num_attention_heads']}"
+        )
+
+    return validation
 
 
 # ============================================================
@@ -1126,6 +1297,10 @@ def main():
     parser.add_argument("--token", help="HuggingFace 认证 token")
     parser.add_argument("--max-depth", type=int, default=3,
                         help="树结构最大深度")
+    parser.add_argument("--dump-raw-config", action="store_true",
+                        help="输出 config.json 原始完整内容")
+    parser.add_argument("--download-repo-files", action="store_true",
+                        help="下载仓库中除权重外的所有配置文件")
 
     args = parser.parse_args()
 
@@ -1140,6 +1315,33 @@ def main():
             token=args.token,
             max_depth=args.max_depth,
         )
+
+        # 输出 raw config.json
+        if args.dump_raw_config:
+            try:
+                from huggingface_hub import hf_hub_download
+                dl_kwargs = {}
+                if args.token:
+                    dl_kwargs["token"] = args.token
+                config_path = hf_hub_download(args.model, "config.json", **dl_kwargs)
+                with open(config_path, "r", encoding="utf-8") as f:
+                    raw_config = json.load(f)
+                result["raw_config"] = raw_config
+                # 执行校对
+                result["validation"] = validate_against_config(result, raw_config)
+            except Exception as e:
+                result["raw_config_error"] = str(e)
+
+        # 下载仓库配置文件
+        if args.download_repo_files:
+            repo_files = download_repo_files(args.model, args.token)
+            result["repo_files"] = repo_files
+            # 如果还没做校对，用 repo_files 中的 config.json 做校对
+            if "validation" not in result and "config.json" in repo_files:
+                raw_cfg = repo_files["config.json"]
+                if isinstance(raw_cfg, dict):
+                    result["validation"] = validate_against_config(result, raw_cfg)
+
         print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
     except OSError as e:
         error_msg = str(e)
